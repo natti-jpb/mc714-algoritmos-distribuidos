@@ -146,21 +146,6 @@ RELATORIO.md         relatório técnico completo
 
 ---
 
-## Roteiro sugerido para o vídeo (~10 min)
-
-1. **(1 min)** Problema e visão geral da arquitetura (este README).
-2. **(2 min)** Código: o `transport.ts` (mensagens reais por WebSocket) e o
-   `node.ts` (Lamport em cada envio/recepção).
-3. **(2 min)** Demo Lamport: eventos internos + mensagem APP + diagrama
-   espaço-tempo; comentar que `C(a)<C(b)` não implica `a→b`.
-4. **(2 min)** Demo exclusão mútua: dois pedidos concorrentes, fila por Lamport;
-   comentar o ponto único de falha.
-5. **(2 min)** Demo Bully: matar o coordenador → tempestade de eleições → novo
-   líder → recuperação; reviver o maior id (valentão).
-6. **(1 min)** Falha de rede (atraso/descarte) e conclusões.
-
----
-
 ## Referências
 
 Ver **[RELATORIO.md](RELATORIO.md)** para a lista completa de referências e a
