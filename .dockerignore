@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-ssr
+.git
+*.log
+*.pdf
+.DS_Store
+.vite

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+*.log
+.DS_Store
+.env
+.vite/
+
+# Slides da disciplina (material do professor) — mantidos apenas localmente
+*.pdf

@@ -1,0 +1,66 @@
+# Cada NÓ é um contêiner próprio; eles trocam mensagens por WebSocket sobre a
+# rede do Docker (resolução por nome de serviço: node0, node1, ...). O observer
+# e o webapp são publicados no host (localhost:8080 e localhost:5173).
+#
+#   docker compose up --build       # sobe observer + 5 nós + webapp
+#   abra http://localhost:5173
+
+# Lista de peers (mesma para todos os nós): id -> (host=nome do serviço, porta).
+x-peers: &peers '[{"id":0,"host":"node0","port":9200},{"id":1,"host":"node1","port":9201},{"id":2,"host":"node2","port":9202},{"id":3,"host":"node3","port":9203},{"id":4,"host":"node4","port":9204}]'
+
+# Base comum dos serviços de nó.
+x-node: &node
+  build: .
+  command: npx tsx src/node/index.ts
+  depends_on: [observer]
+
+services:
+  observer:
+    build: .
+    command: npx tsx src/observer/index.ts
+    environment:
+      OBSERVER_PORT: "8080"
+    ports:
+      - "8080:8080"
+
+  node0:
+    <<: *node
+    environment:
+      NODE_ID: "0"
+      OBSERVER_URL: ws://observer:8080
+      PEERS: *peers
+
+  node1:
+    <<: *node
+    environment:
+      NODE_ID: "1"
+      OBSERVER_URL: ws://observer:8080
+      PEERS: *peers
+
+  node2:
+    <<: *node
+    environment:
+      NODE_ID: "2"
+      OBSERVER_URL: ws://observer:8080
+      PEERS: *peers
+
+  node3:
+    <<: *node
+    environment:
+      NODE_ID: "3"
+      OBSERVER_URL: ws://observer:8080
+      PEERS: *peers
+
+  node4:
+    <<: *node
+    environment:
+      NODE_ID: "4"
+      OBSERVER_URL: ws://observer:8080
+      PEERS: *peers
+
+  web:
+    build: .
+    command: sh -c "npx vite --host 0.0.0.0 --port 5173"
+    ports:
+      - "5173:5173"
+    depends_on: [observer]

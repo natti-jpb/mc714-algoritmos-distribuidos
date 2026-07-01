@@ -1,0 +1,32 @@
+{
+  "name": "mc714-distributed-algorithms",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Demonstração didática de relógio de Lamport, exclusão mútua centralizada e eleição Bully com troca de mensagens real (WebSocket) entre processos.",
+  "scripts": {
+    "dev": "concurrently -n cluster,web -c cyan,green \"npm:dev:cluster\" \"npm:dev:web\"",
+    "dev:cluster": "tsx src/launcher.ts",
+    "dev:web": "vite",
+    "node": "tsx src/node/index.ts",
+    "observer": "tsx src/observer/index.ts",
+    "build:web": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}
