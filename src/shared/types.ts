@@ -9,18 +9,17 @@ export type Lamport = number;
  */
 export type MessageType =
   // Evento de aplicação genérico (serve para demonstrar Lamport em mensagens arbitrárias).
-  | "APP"
+  | "APP" //     nó -> nó: mensagem de aplicação (espera resposta APP_ACK)
+  | "APP_ACK" // nó -> nó: resposta à mensagem de aplicação (prova que está vivo)
   // Exclusão mútua centralizada.
   | "MUTEX_REQUEST" // nó -> coordenador: quero entrar na seção crítica (SC)
+  | "MUTEX_ACK" //     coordenador -> nó: recebi seu pedido (você está na fila) — prova de vida
   | "MUTEX_GRANT" //   coordenador -> nó: pode entrar
   | "MUTEX_RELEASE" // nó -> coordenador: saí da SC
   // Eleição Bully.
   | "ELECTION" //     nó -> ids maiores: iniciei uma eleição
   | "ANSWER" //       id maior -> iniciador: estou vivo, eu assumo a partir daqui
-  | "COORDINATOR" //  vencedor -> todos: sou o novo coordenador
-  // Detecção de falha.
-  | "HEARTBEAT" //     nó -> coordenador: você está vivo?
-  | "HEARTBEAT_ACK"; // coordenador -> nó: estou vivo
+  | "COORDINATOR"; // vencedor -> todos: sou o novo coordenador
 
 export interface WireMessage {
   type: MessageType;
@@ -68,6 +67,9 @@ export type Command =
   | { cmd: "kill"; nodeId: NodeId } // simula crash (crash-stop)
   | { cmd: "revive"; nodeId: NodeId } // recupera o nó
   | { cmd: "force_election"; nodeId: NodeId } // dispara eleição manualmente
+  | { cmd: "set_msg_delay"; delayMs: number } // atraso artificial de TODA mensagem (global)
+  | { cmd: "set_death_timeout"; ms: number } // tempo sem resposta até considerar um nó morto (global)
+  | { cmd: "reset" } // reinicia tudo: relógios, estados e o log (global)
   | { cmd: "set_link"; from: NodeId; to: NodeId; delayMs: number; drop: boolean }; // falha de link
 
 // Estado consolidado de um nó, enviado ao navegador para renderização.

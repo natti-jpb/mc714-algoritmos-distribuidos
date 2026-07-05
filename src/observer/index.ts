@@ -81,6 +81,20 @@ function handleCommand(data: string): void {
   } catch {
     return;
   }
+  // Comandos GLOBAIS (sem nó-alvo) vão para TODOS os nós.
+  if (cmd.cmd === "set_msg_delay" || cmd.cmd === "set_death_timeout" || cmd.cmd === "reset") {
+    if (cmd.cmd === "reset") {
+      // Zera a timeline agregada e manda o navegador limpar a tela; os nós
+      // reemitem node_up logo em seguida, repovoando o estado.
+      eventLog.length = 0;
+      nodeStates.clear();
+      seq = 0;
+      broadcastToBrowsers({ type: "reset" });
+    }
+    const s = JSON.stringify(cmd);
+    for (const ws of nodeSockets.values()) if (ws.readyState === WebSocket.OPEN) ws.send(s);
+    return;
+  }
   const target = commandTarget(cmd);
   if (target === null) return;
   const ws = nodeSockets.get(target);

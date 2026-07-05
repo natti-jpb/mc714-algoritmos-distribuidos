@@ -20,6 +20,7 @@ function launch(name: string, file: string, env: Record<string, string>): void {
   const child = spawn(TSX, [file], {
     env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],
+    shell: process.platform === "win32",
   });
   children.push(child);
   child.stdout?.on("data", (d: Buffer) => process.stdout.write(prefixLines(`[${name}]`, d.toString())));

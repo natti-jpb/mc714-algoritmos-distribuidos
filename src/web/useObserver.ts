@@ -72,7 +72,10 @@ export function useObserver(): ObserverApi {
         } catch {
           return;
         }
-        if (m.type === "snapshot") {
+        if (m.type === "reset") {
+          setNodesMap(new Map());
+          setEvents([]);
+        } else if (m.type === "snapshot") {
           let map = new Map<NodeId, UINode>();
           for (const v of m.nodes) map.set(v.id, fromView(v));
           for (const e of m.events) map = reduce(map, e.t);

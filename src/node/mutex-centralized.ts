@@ -19,6 +19,9 @@ export class MutexCentralized {
   // Estado do nó como SOLICITANTE.
   private state: MutexState = "released";
   private holdTimer: ReturnType<typeof setTimeout> | null = null;
+  // Timer de detecção: se o coordenador não confirmar (MUTEX_ACK) nem conceder
+  // (MUTEX_GRANT) a tempo, ele é considerado morto e disparamos uma eleição.
+  private reqTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Estado usado apenas quando este nó é o COORDENADOR.
   private busy = false;
@@ -45,16 +48,37 @@ export class MutexCentralized {
     this.state = "wanted";
     this.ctx.emitMutex(this.state, this.queueIds());
     this.ctx.log("quero entrar na seção crítica");
+    this.sendRequest();
+  }
 
+  // Envia o pedido ao coordenador atual e arma a detecção de falha. Se não há
+  // coordenador conhecido, dispara logo uma eleição (o pedido segue pendente).
+  private sendRequest(): void {
+    this.clearReqTimer();
     const coord = this.ctx.coordinator;
     if (coord === null) {
-      this.ctx.log("não há coordenador! pedido fica pendente até a eleição", "warn");
+      this.ctx.log("não há coordenador! inicio uma eleição (pedido fica pendente)", "warn");
+      this.ctx.startElection();
       return;
     }
     if (coord === this.ctx.id) {
       this.coordHandleRequest(this.ctx.id, this.ctx.clock.get());
-    } else {
-      this.ctx.send("MUTEX_REQUEST", coord);
+      return;
+    }
+    this.ctx.send("MUTEX_REQUEST", coord);
+    // Sem MUTEX_ACK/GRANT dentro do prazo => coordenador morto => eleição.
+    this.reqTimer = setTimeout(() => {
+      this.reqTimer = null;
+      this.ctx.log(`coordenador ${coord} não respondeu ao pedido de SC — considero-o MORTO`, "warn");
+      this.ctx.log(`inicio uma eleição; reenvio o pedido ao novo coordenador`, "warn");
+      this.ctx.startElection();
+    }, this.ctx.deathTimeoutMs);
+  }
+
+  private clearReqTimer(): void {
+    if (this.reqTimer) {
+      clearTimeout(this.reqTimer);
+      this.reqTimer = null;
     }
   }
 
@@ -73,7 +97,14 @@ export class MutexCentralized {
     else if (coord !== null) this.ctx.send("MUTEX_RELEASE", coord);
   }
 
+  private onAck(): void {
+    // O coordenador confirmou o recebimento: está vivo. Cancela a detecção de
+    // falha; agora é só aguardar o GRANT (que pode demorar se a SC está ocupada).
+    this.clearReqTimer();
+  }
+
   private onGrant(): void {
+    this.clearReqTimer();
     this.state = "held";
     this.ctx.emitMutex(this.state, this.queueIds());
     this.ctx.log("ENTREI na seção crítica");
@@ -84,6 +115,8 @@ export class MutexCentralized {
   // ---- Lado COORDENADOR -----------------------------------------------------
 
   private coordHandleRequest(from: NodeId, lamport: number): void {
+    // Confirma imediatamente o recebimento (prova de vida) ao solicitante remoto.
+    if (from !== this.ctx.id) this.ctx.send("MUTEX_ACK", from);
     this.ctx.log(`[coord] pedido de SC de ${from} (ts=${lamport})`);
     if (!this.busy) {
       this.grantTo(from);
@@ -125,6 +158,9 @@ export class MutexCentralized {
       case "MUTEX_REQUEST": // só chega aqui se eu for o coordenador
         this.coordHandleRequest(msg.from, msg.lamport);
         break;
+      case "MUTEX_ACK":
+        this.onAck();
+        break;
       case "MUTEX_GRANT":
         this.onGrant();
         break;
@@ -141,12 +177,13 @@ export class MutexCentralized {
     this.busy = false;
     this.holder = null;
     this.queue = [];
+    this.clearReqTimer();
 
-    // Se eu estava esperando a SC, reenvio o pedido ao novo coordenador.
+    // Se eu estava esperando a SC, reenvio o pedido ao novo coordenador
+    // (rearma a detecção de falha).
     if (this.state === "wanted" && newCoord !== null) {
       this.ctx.log(`reenvio meu pedido de SC ao novo coordenador ${newCoord}`);
-      if (newCoord === this.ctx.id) this.coordHandleRequest(this.ctx.id, this.ctx.clock.get());
-      else this.ctx.send("MUTEX_REQUEST", newCoord);
+      this.sendRequest();
     } else if (this.state === "held") {
       this.ctx.log("eu estava na SC durante a troca de coordenador", "warn");
     }
@@ -159,6 +196,7 @@ export class MutexCentralized {
       clearTimeout(this.holdTimer);
       this.holdTimer = null;
     }
+    this.clearReqTimer();
     this.state = "released";
     this.busy = false;
     this.holder = null;

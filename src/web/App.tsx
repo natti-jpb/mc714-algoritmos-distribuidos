@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useObserver } from "./useObserver";
 import { NodeGraph } from "./components/NodeGraph";
 import { Controls } from "./components/Controls";
@@ -8,12 +8,21 @@ import { Explain } from "./components/Explain";
 import { TYPE_COLORS, TYPE_LABELS } from "./theme";
 import type { MessageType } from "../shared/types";
 
-const LEGEND: MessageType[] = ["APP", "MUTEX_REQUEST", "MUTEX_GRANT", "MUTEX_RELEASE", "ELECTION", "ANSWER", "COORDINATOR"];
+const LEGEND: MessageType[] = ["APP", "APP_ACK", "MUTEX_REQUEST", "MUTEX_GRANT", "MUTEX_RELEASE", "ELECTION", "ANSWER", "COORDINATOR"];
+
+// Atraso base (ms) a velocidade 1. A UI escala isto: velocidade menor => atraso
+// MAIOR (troca de mensagens mais lenta e sequencial). Deve casar com o backend.
+const BASE_DELAY = 1000;
 
 export function App() {
   const { connected, nodes, events, send } = useObserver();
-  const [showHeartbeats, setShowHeartbeats] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const delayMs = Math.round(BASE_DELAY / speed);
+
+  // Propaga o atraso artificial a todos os nós (e ressincroniza ao reconectar).
+  useEffect(() => {
+    if (connected) send({ cmd: "set_msg_delay", delayMs });
+  }, [delayMs, connected, send]);
   const [sideTab, setSideTab] = useState<"controles" | "explicacao">("controles");
   const [bottomTab, setBottomTab] = useState<"log" | "spacetime">("log");
 
@@ -25,15 +34,19 @@ export function App() {
           <span className="subtitle">Lamport · Exclusão mútua centralizada · Eleição Bully</span>
         </div>
         <div className="topbar-right">
-          <span className={`conn ${connected ? "on" : "off"}`}>{connected ? "● conectado" : "○ desconectado"}</span>
-          <label className="checkbox">
-            <input type="checkbox" checked={showHeartbeats} onChange={(e) => setShowHeartbeats(e.target.checked)} />
-            heartbeats
-          </label>
+          <button
+            className="btn btn-reset"
+            title="Reinicia todos os nós: relógios, estados e o log voltam ao início (cada nó com um relógio de Lamport inicial diferente)"
+            onClick={() => send({ cmd: "reset" })}
+          >
+            ↻ Reiniciar tudo
+          </button>
           <label className="speed">
             velocidade
-            <input type="range" min={0.4} max={2} step={0.1} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} />
+            <input type="range" min={0.1} max={2} step={0.05} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} />
+            <span className="speed-val">{delayMs} ms/msg</span>
           </label>
+          <span className={`conn ${connected ? "on" : "off"}`}>{connected ? "● conectado" : "○ desconectado"}</span>
         </div>
       </header>
 
@@ -52,8 +65,22 @@ export function App() {
           {nodes.length === 0 ? (
             <div className="waiting">Aguardando o cluster… rode <code>npm run dev:cluster</code> e recarregue.</div>
           ) : (
-            <NodeGraph nodes={nodes} events={events} showHeartbeats={showHeartbeats} speed={speed} />
+            <NodeGraph nodes={nodes} events={events} delayMs={delayMs} />
           )}
+        </section>
+
+        <section className="bottom-panel">
+          <div className="tabs">
+            <button className={`tab ${bottomTab === "log" ? "active" : ""}`} onClick={() => setBottomTab("log")}>
+              Log de eventos
+            </button>
+            <button className={`tab ${bottomTab === "spacetime" ? "active" : ""}`} onClick={() => setBottomTab("spacetime")}>
+              Diagrama espaço-tempo (Lamport)
+            </button>
+          </div>
+          <div className="bottom-body">
+            {bottomTab === "log" ? <EventLog events={events} /> : <SpaceTime events={events} />}
+          </div>
         </section>
 
         <aside className="side-panel">
@@ -70,20 +97,6 @@ export function App() {
           </div>
         </aside>
       </main>
-
-      <section className="bottom-panel">
-        <div className="tabs">
-          <button className={`tab ${bottomTab === "log" ? "active" : ""}`} onClick={() => setBottomTab("log")}>
-            Log de eventos
-          </button>
-          <button className={`tab ${bottomTab === "spacetime" ? "active" : ""}`} onClick={() => setBottomTab("spacetime")}>
-            Diagrama espaço-tempo (Lamport)
-          </button>
-        </div>
-        <div className="bottom-body">
-          {bottomTab === "log" ? <EventLog events={events} showHeartbeats={showHeartbeats} /> : <SpaceTime events={events} />}
-        </div>
-      </section>
     </div>
   );
 }

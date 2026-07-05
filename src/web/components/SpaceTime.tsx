@@ -1,6 +1,6 @@
 import type { NodeId } from "../../shared/types";
 import type { LogEntry } from "../types";
-import { isCausal, TYPE_COLORS } from "../theme";
+import { TYPE_COLORS } from "../theme";
 
 // Diagrama espaço-tempo de Lamport: cada nó é uma coluna; o tempo lógico cresce
 // para baixo. Pontos são eventos; setas diagonais são mensagens (send -> recv).
@@ -26,21 +26,17 @@ interface Pt {
 }
 
 export function SpaceTime({ events }: Props) {
-  // Coleta eventos causais (descarta heartbeats) recentes.
+  // Coleta eventos (mensagens e eventos internos) recentes.
   const causal: LogEntry[] = [];
   for (let i = events.length - 1; i >= 0 && causal.length < MAX_EVENTS; i--) {
     const t = events[i].t;
-    if (t.kind === "send" || t.kind === "recv") {
-      if (isCausal(t.msg.type)) causal.push(events[i]);
-    } else if (t.kind === "event") {
-      causal.push(events[i]);
-    }
+    if (t.kind === "send" || t.kind === "recv" || t.kind === "event") causal.push(events[i]);
   }
   causal.reverse();
 
   const ids = [...new Set(causal.map((e) => e.t.nodeId))].sort((a, b) => a - b);
   if (ids.length === 0) {
-    return <div className="log-empty">Faça eventos/mensagens (sem heartbeats) para o diagrama aparecer…</div>;
+    return <div className="log-empty">Faça eventos/mensagens para o diagrama aparecer…</div>;
   }
   const col = new Map<NodeId, number>();
   ids.forEach((id, i) => col.set(id, PAD_LEFT + i * COL_W));
@@ -58,6 +54,9 @@ export function SpaceTime({ events }: Props) {
     return { node: t.nodeId, lamport: t.lamport, kind: t.kind };
   });
 
+  // Níveis de tempo lógico (Lamport) que têm algum evento — viram linhas + rótulos.
+  const levels = [...new Set(pts.map((p) => p.lamport))].sort((a, b) => a - b);
+
   // Pareia send -> recv por msgId.
   const sends = new Map<string, Pt>();
   const recvs = new Map<string, Pt>();
@@ -69,6 +68,19 @@ export function SpaceTime({ events }: Props) {
   return (
     <div className="spacetime-scroll">
       <svg width={width} height={height} className="spacetime">
+        {/* escala de TEMPO LÓGICO (Lamport): rótulos à esquerda + linhas de grade */}
+        <text x={PAD_LEFT - 34} y={PAD_TOP - 18} textAnchor="end" className="st-label">
+          t
+        </text>
+        {levels.map((l) => (
+          <g key={`lv-${l}`}>
+            <line x1={PAD_LEFT - 24} y1={y(l)} x2={width - 8} y2={y(l)} className="st-grid" />
+            <text x={PAD_LEFT - 34} y={y(l) + 4} textAnchor="end" className="st-time">
+              {l}
+            </text>
+          </g>
+        ))}
+
         {/* eixos verticais por nó */}
         {ids.map((id) => {
           const x = col.get(id)!;

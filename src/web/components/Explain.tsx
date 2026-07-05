@@ -1,15 +1,16 @@
 import { useState } from "react";
 
-type Topic = "lamport" | "mutex" | "election";
+type Topic = "messaging" | "lamport" | "mutex" | "election";
 
 const TABS: { id: Topic; label: string }[] = [
+  { id: "messaging", label: "Comunicação (real)" },
   { id: "lamport", label: "Relógio de Lamport" },
   { id: "mutex", label: "Exclusão mútua" },
   { id: "election", label: "Eleição (Bully)" },
 ];
 
 export function Explain() {
-  const [topic, setTopic] = useState<Topic>("lamport");
+  const [topic, setTopic] = useState<Topic>("messaging");
   return (
     <div className="explain">
       <div className="explain-tabs">
@@ -20,11 +21,52 @@ export function Explain() {
         ))}
       </div>
       <div className="explain-body">
+        {topic === "messaging" && <Messaging />}
         {topic === "lamport" && <Lamport />}
         {topic === "mutex" && <Mutex />}
         {topic === "election" && <Election />}
       </div>
     </div>
+  );
+}
+
+function Messaging() {
+  return (
+    <>
+      <p>
+        <b>Troca de mensagens REAL — não é simulação.</b> Cada nó é um <b>processo
+        independente</b> (um contêiner no Docker). Os nós conversam entre si por{" "}
+        <b>WebSocket sobre TCP</b>, numa <b>malha completa</b> — não há arquivo
+        compartilhado nem fila em memória comum.
+      </p>
+      <p>
+        <b>Topologia:</b> uma conexão por par, pela convenção “o <b>id menor</b>{" "}
+        conecta no <b>id maior</b>”; cada nó também roda um servidor que aceita as
+        conexões de entrada. Reconexão é automática.
+      </p>
+      <p>
+        <b>Toda mensagem</b> tem o formato{" "}
+        <code>{"{ type, from, to, lamport, msgId }"}</code> e carrega o relógio de
+        Lamport do remetente. Tipos por algoritmo:
+      </p>
+      <ul className="explain-list">
+        <li>Aplicação (Lamport): <code>APP</code>, <code>APP_ACK</code></li>
+        <li>Exclusão mútua: <code>MUTEX_REQUEST</code>, <code>MUTEX_ACK</code>, <code>MUTEX_GRANT</code>, <code>MUTEX_RELEASE</code></li>
+        <li>Eleição (Bully): <code>ELECTION</code>, <code>ANSWER</code>, <code>COORDINATOR</code></li>
+      </ul>
+      <div className="callout problem">
+        <b>Observer & webapp = só instrumentação.</b> O <i>observer</i> e esta tela{" "}
+        <b>não participam das decisões</b> dos algoritmos — só recebem telemetria e
+        enviam comandos (estímulos/falhas). As decisões acontecem <b>nó-a-nó</b>,
+        por mensagens reais.
+      </div>
+      <div className="callout try">
+        <b>Sobre o atraso:</b> a barra de <b>velocidade</b> injeta um atraso
+        artificial de entrega (ms) para as trocas ficarem observáveis e{" "}
+        <b>sequenciais</b> (a resposta só sai depois que a mensagem chega). O
+        transporte continua real; o atraso só torna o tempo visível a olho nu.
+      </div>
+    </>
   );
 }
 
@@ -80,18 +122,18 @@ function Election() {
   return (
     <>
       <p>
-        <b>Bully (valentão):</b> cada nó vigia o coordenador por <i>heartbeats</i>. Sem resposta, inicia eleição enviando <code>ELECTION</code> aos
-        nós de <b>id maior</b>. Quem recebe responde <code>ANSWER</code> e inicia a sua. Quem não recebe nenhum <code>ANSWER</code> vence e anuncia{" "}
-        <code>COORDINATOR</code> a todos. O <b>maior id</b> sempre vence.
+        <b>Bully (valentão):</b> quando um nó <b>nota que o coordenador não responde</b> (aqui: uma mensagem de aplicação que fica sem resposta),
+        inicia uma eleição enviando <code>ELECTION</code> aos nós de <b>id maior</b>. Quem recebe responde <code>ANSWER</code> e inicia a sua. Quem
+        não recebe nenhum <code>ANSWER</code> vence e anuncia <code>COORDINATOR</code> a todos. O <b>maior id</b> sempre vence.
       </p>
       <div className="callout problem">
-        <b>⚠ Problemas:</b> <b>tempestade de mensagens</b> — várias eleições simultâneas quando muitos detectam a falha juntos (até O(n²) mensagens). E
-        ao se recuperar, o nó de maior id <b>reassume à força</b>, podendo disparar novas eleições.
+        <b>⚠ Problemas:</b> <b>tempestade de mensagens</b> — o <code>ELECTION</code> de um nó faz cada nó de id maior iniciar a sua própria eleição,
+        gerando várias eleições em cascata (até O(n²) mensagens). E ao se recuperar, o nó de maior id <b>reassume à força</b>, podendo disparar novas eleições.
       </div>
       <div className="callout try">
-        <b>Experimente:</b> <b>mate o coordenador</b> (maior id) e veja a tempestade de <code>ELECTION</code> e o segundo-maior assumir. Depois{" "}
-        <b>reviva-o</b>: ele dispara eleição e reassume (valentão). Ou injete <b>atraso/descarte</b> no link com o coordenador para provocar uma
-        detecção de falha <i>falsa</i>.
+        <b>Experimente:</b> <b>mate o coordenador</b> (maior id) — nada acontece sozinho (crash silencioso). Depois <b>envie uma mensagem de
+        aplicação</b> de um nó ao coordenador: sem resposta, ele o declara morto e dispara a eleição; veja o segundo-maior assumir. Em seguida{" "}
+        <b>reviva</b> o antigo coordenador: ele faz eleição e reassume (valentão).
       </div>
     </>
   );

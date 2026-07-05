@@ -54,12 +54,18 @@ o coordenador é **ponto único de falha** e gargalo.
 
 ### 2.3 Eleição Bully (Garcia-Molina, 1982)
 
-Cada processo vigia o coordenador por *heartbeats*. Sem resposta no prazo, inicia
-uma eleição enviando `ELECTION` aos processos de **id maior**. Quem recebe
-responde `ANSWER` (e inicia a sua). Quem não recebe nenhum `ANSWER` vence e
-anuncia `COORDINATOR` a todos. O **maior id** sempre vence — e, ao se recuperar,
-reassume à força (daí o nome "valentão"). **Problemas** (demonstrados):
-**tempestade de mensagens** (até O(n²)) com eleições simultâneas, e re-eleições
+Quando um processo **nota que o coordenador não responde**, inicia uma eleição
+enviando `ELECTION` aos processos de **id maior**. Quem recebe responde `ANSWER`
+(e inicia a sua). Quem não recebe nenhum `ANSWER` vence e anuncia `COORDINATOR` a
+todos. O **maior id** sempre vence — e, ao se recuperar, reassume à força (daí o
+nome "valentão").
+
+A **detecção de falha é manual**: um processo
+"nota que o coordenador não responde" ao enviar uma **mensagem de aplicação**
+(`APP`) que fica sem resposta (`APP_ACK`) dentro do prazo — reproduzindo
+fielmente a premissa do texto ("quando um processo nota que o coordenador não
+responde às requisições, ele inicia uma eleição"). **Problemas** (demonstrados):
+**tempestade de mensagens** (até O(n²)) com eleições em cascata, e re-eleições
 quando o maior id retorna.
 
 ### 2.4 Integração dos três
@@ -119,7 +125,7 @@ flowchart TB
   roteia mensagens para os módulos de algoritmo, modela *crash/recover*, e emite
   telemetria.
 - `src/node/mutex-centralized.ts` — exclusão mútua centralizada.
-- `src/node/election-bully.ts` — eleição Bully + detecção de falha por heartbeat.
+- `src/node/election-bully.ts` — eleição Bully (detecção de falha manual, ver 3.4).
 - `src/observer/index.ts` — recebe telemetria de cada nó, agrega a timeline e
   roteia comandos do navegador ao nó-alvo. **Não decide nada** dos algoritmos.
 - `src/web/` — visualização (grafo, log, diagrama espaço-tempo) e controles.
@@ -130,22 +136,40 @@ Toda mensagem: `{ type, from, to, lamport, msgId, payload? }`. Tipos:
 
 | Categoria | Tipos |
 |---|---|
-| Aplicação | `APP` |
-| Exclusão mútua | `MUTEX_REQUEST`, `MUTEX_GRANT`, `MUTEX_RELEASE` |
+| Aplicação | `APP`, `APP_ACK` |
+| Exclusão mútua | `MUTEX_REQUEST`, `MUTEX_ACK`, `MUTEX_GRANT`, `MUTEX_RELEASE` |
 | Eleição | `ELECTION`, `ANSWER`, `COORDINATOR` |
-| Detecção de falha | `HEARTBEAT`, `HEARTBEAT_ACK` |
 
-Os heartbeats são um canal de *liveness* fora-de-banda e, por decisão de projeto,
-**não** participam do relógio de Lamport — isso mantém a visualização do tempo
-lógico focada nos eventos de aplicação/exclusão mútua/eleição (a visualização
-permite exibi-los opcionalmente).
+Toda mensagem participa do relógio de Lamport (é carimbada no envio e aplica a
+regra `max+1` na recepção). O `MUTEX_ACK` é a confirmação imediata de recebimento
+de um pedido de SC (prova de vida do coordenador): permite distinguir um
+coordenador **ocupado** — que confirma e enfileira — de um **morto** — que não
+responde.
+
+**Atraso artificial e simulação sequencial.** Todo envio passa por um atraso de
+entrega configurável (`BASE_MSG_DELAY_MS`, ajustável pela UI). Ele não altera a
+lógica, mas torna as trocas **sequenciais e observáveis**: uma resposta só é
+enviada depois que a mensagem chega. Cada nó também começa com um **relógio de
+Lamport inicial distinto** (aleatório) para deixar a ordenação lógica interessante
+desde o início; o comando `reset` reinicia tudo com novos valores.
 
 ### 3.4 Detecção de falha e modelo de crash
 
-O `kill` modela uma falha **crash-stop**: o nó para de responder aos peers (fecha
-os sockets da malha), de modo que os demais detectam a queda por (a) perda da
-conexão e (b) ausência de `HEARTBEAT_ACK` no prazo. A conexão do nó com o
-*observer* é mantida apenas para permitir o comando `revive`.
+O `kill` modela uma falha **crash-stop silenciosa**: o nó para de responder
+(ignora mensagens e não envia nada), mas **não** fecha os sockets da malha —
+como uma partição ou um processo travado. Assim os peers **não** percebem a
+queda pela conexão TCP; a falha só é detectada por **ausência de resposta**.
+
+A detecção é **manual** (não há *heartbeat* automático): ao **pedir a SC** ou ao
+**enviar uma mensagem de aplicação** (`APP`) ao coordenador, o nó espera a resposta
+(`MUTEX_ACK`/`MUTEX_GRANT` ou `APP_ACK`); se nada chega dentro do prazo (o tempo
+"considerar nó morto após", ajustável na UI, com piso de ~3× o atraso de rede
+para não gerar falso positivo), o nó o considera morto e inicia a eleição — e
+reenvia o pedido de SC ao novo coordenador. Isso reproduz literalmente a premissa
+do algoritmo — "quando um processo **nota** que o coordenador não responde às
+requisições, ele inicia uma eleição" — de forma observável passo a passo. A conexão
+do nó com o *observer* é mantida mesmo "morto" apenas para permitir o comando
+`revive`.
 
 ### 3.5 Diagrama de sequência — exclusão mútua + falha + eleição
 
@@ -159,9 +183,10 @@ sequenceDiagram
   n2->>C: MUTEX_REQUEST (ts)
   C-->>n1: MUTEX_GRANT
   Note over C: n2 entra na fila (ordem de Lamport)
-  Note over C: n4 CRASH 💥
-  n3-xC: HEARTBEAT (sem ACK)
-  n3->>n3: timeout → inicia eleição
+  Note over C: n4 CRASH 💥 (silencioso)
+  n3->>C: APP (mensagem de aplicação)
+  n3-xC: APP_ACK (nunca chega)
+  n3->>n3: timeout do APP_ACK → declara n4 morto → inicia eleição
   Note over n1,n3: Bully: maior id vivo (n3) vence
   n3-->>n1: COORDINATOR
   n3-->>n2: COORDINATOR
@@ -200,19 +225,22 @@ migração da coroa do coordenador, log e diagrama espaço-tempo).
 |---|---|
 | Lamport | `C(a)<C(b)` não implica `a→b`; ordem de concorrentes é arbitrária |
 | Exclusão mútua centralizada | ponto único de falha / gargalo no coordenador |
-| Bully | tempestade de mensagens (eleições simultâneas); re-eleição do maior id |
-| Detecção por timeout | falso positivo sob atraso/perda de rede |
+| Bully | tempestade de mensagens (eleições em cascata); re-eleição do maior id |
+| Detecção por timeout | falso positivo sob atraso/perda de rede (mensagem lenta = "morto") |
 
 ## 6. Comentários sobre a experiência
 
 A maior dificuldade prática não foram os algoritmos em si, mas a **infraestrutura
-de mensagens**: gerenciamento de conexões da malha, reconexão e o detector de
-falha por heartbeat (o *timeout* não pode ser rearmado a cada ping, senão nunca
-dispara). Modelar o crash de forma **lógica** (o nó para de responder, mas o
-processo segue vivo para poder ser revivido) deixou a demonstração fluida sem
-abrir mão da fidelidade — do ponto de vista dos outros nós, é indistinguível de um
-crash real. A integração dos três algoritmos em torno do coordenador tornou a
-demonstração coesa: o defeito de um vira a motivação do seguinte.
+de mensagens**: gerenciamento de conexões da malha e reconexão. Optamos por uma
+detecção de falha **manual** (por mensagem sem resposta) em vez de *heartbeats*
+automáticos: assim cada passo do Bully — "notar" que o coordenador não responde,
+iniciar a eleição, a cascata de `ELECTION`/`ANSWER` e o anúncio `COORDINATOR` —
+fica observável um a um, exatamente como nas figuras do livro. Modelar o crash de
+forma **lógica e silenciosa** (o nó para de responder, mas o processo segue vivo
+e com os sockets abertos) deixou a demonstração fiel: do ponto de vista dos
+outros nós, é indistinguível de uma partição/travamento. A integração dos três
+algoritmos em torno do coordenador tornou a demonstração coesa: o defeito de um
+vira a motivação do seguinte.
 
 ## 7. Fontes utilizadas e uso de código de terceiros
 

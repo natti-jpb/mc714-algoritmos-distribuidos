@@ -1,12 +1,12 @@
 import type { NodeContext } from "./context";
 import type { WireMessage } from "../shared/types";
-import { ELECTION_ANSWER_TIMEOUT_MS, HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS } from "../config";
+import { ELECTION_ANSWER_TIMEOUT_MS } from "../config";
 
 // Algoritmo de eleição BULLY (Garcia-Molina, 1982 / Tanenbaum 6.4.1 / slides 16).
 //
-// Detecção de falha: cada nó (não-coordenador) envia HEARTBEAT ao coordenador e
-// espera HEARTBEAT_ACK. Se o ACK não chega a tempo, o coordenador é dado como
-// morto e o nó inicia uma eleição.
+// DETECÇÃO DE FALHA É MANUAL: não há heartbeat automático. Um nó "nota que o
+// coordenador não responde" ao enviar uma mensagem de aplicação (APP) que fica
+// sem resposta (APP_ACK) — ver node.ts. Só então ele chama startElection().
 //
 // Eleição:
 //   - Se o nó já é o de maior id, declara-se coordenador (COORDINATOR a todos).
@@ -15,16 +15,11 @@ import { ELECTION_ANSWER_TIMEOUT_MS, HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS
 //       * com ANSWER  => alguém maior assume; espera o anúncio COORDINATOR.
 //   - Ao receber ELECTION de um id menor, responde ANSWER e inicia sua própria eleição.
 //
-// PROBLEMAS demonstráveis: tempestade de mensagens (várias eleições simultâneas)
-// e "valentão" — o maior id sempre vence; ao voltar, ele reassume à força.
+// PROBLEMA demonstrável: "valentão" — o maior id sempre vence; ao voltar (revive),
+// ele reassume à força.
 export class BullyElection {
-  private running = false;
   private inElection = false;
   private gotAnswer = false;
-  private awaitingAck = false;
-
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  private hbTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private answerTimer: ReturnType<typeof setTimeout> | null = null;
   private coordWaitTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -34,69 +29,25 @@ export class BullyElection {
     return this.ctx.allIds.some((i) => i > this.ctx.id);
   }
 
-  start(): void {
-    this.running = true;
-    this.inElection = false;
-    this.gotAnswer = false;
-    this.awaitingAck = false;
-    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-    this.heartbeatTimer = setInterval(() => this.pingCoordinator(), HEARTBEAT_INTERVAL_MS);
+  // Espera por ANSWER: precisa cobrir o ida-e-volta de uma mensagem (que agora
+  // tem atraso artificial). Piso em ELECTION_ANSWER_TIMEOUT_MS.
+  private answerTimeout(): number {
+    return Math.max(ELECTION_ANSWER_TIMEOUT_MS, this.ctx.msgDelayMs * 3);
   }
 
+  // Cancela qualquer eleição em curso (usado ao crashar).
   stop(): void {
-    this.running = false;
     this.inElection = false;
-    this.awaitingAck = false;
-    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.gotAnswer = false;
     this.clearTimeouts();
-    this.heartbeatTimer = null;
   }
 
   private clearTimeouts(): void {
-    if (this.hbTimeoutTimer) clearTimeout(this.hbTimeoutTimer);
     if (this.answerTimer) clearTimeout(this.answerTimer);
     if (this.coordWaitTimer) clearTimeout(this.coordWaitTimer);
-    this.hbTimeoutTimer = null;
     this.answerTimer = null;
     this.coordWaitTimer = null;
   }
-
-  // ---- Detecção de falha (heartbeat) ---------------------------------------
-
-  private pingCoordinator(): void {
-    if (!this.running || !this.ctx.isAlive()) return;
-    const coord = this.ctx.coordinator;
-    if (coord === null || coord === this.ctx.id) return; // eu sou o coordenador (ou não há um)
-
-    this.ctx.send("HEARTBEAT", coord);
-    if (!this.awaitingAck) {
-      this.awaitingAck = true;
-      this.hbTimeoutTimer = setTimeout(() => {
-        this.awaitingAck = false;
-        this.ctx.log(`coordenador ${coord} não respondeu ao heartbeat`, "warn");
-        this.startElection();
-      }, HEARTBEAT_TIMEOUT_MS);
-    }
-  }
-
-  onHeartbeat(msg: WireMessage): void {
-    // Só respondo se de fato me considero o coordenador.
-    if (this.ctx.coordinator === this.ctx.id) {
-      this.ctx.send("HEARTBEAT_ACK", msg.from);
-    }
-  }
-
-  onHeartbeatAck(msg: WireMessage): void {
-    if (msg.from === this.ctx.coordinator) {
-      this.awaitingAck = false;
-      if (this.hbTimeoutTimer) {
-        clearTimeout(this.hbTimeoutTimer);
-        this.hbTimeoutTimer = null;
-      }
-    }
-  }
-
-  // ---- Eleição --------------------------------------------------------------
 
   startElection(): void {
     if (!this.ctx.isAlive() || this.inElection) return;
@@ -106,13 +57,13 @@ export class BullyElection {
     this.ctx.log("iniciei uma ELEIÇÃO");
 
     if (!this.hasHigher()) {
-      this.win();
+      this.win(); // sou o maior: venço imediatamente
       return;
     }
     this.ctx.broadcastToHigher("ELECTION");
     this.answerTimer = setTimeout(() => {
       if (!this.gotAnswer) this.win(); // ninguém maior respondeu => eu venço
-    }, ELECTION_ANSWER_TIMEOUT_MS);
+    }, this.answerTimeout());
   }
 
   private win(): void {
@@ -143,7 +94,7 @@ export class BullyElection {
           this.inElection = false;
           this.ctx.log("novo coordenador não anunciou a tempo; reinicio eleição", "warn");
           this.startElection();
-        }, ELECTION_ANSWER_TIMEOUT_MS * 2);
+        }, this.answerTimeout() * 2);
         break;
       }
       case "COORDINATOR": {
@@ -162,15 +113,6 @@ export class BullyElection {
         }
         break;
       }
-    }
-  }
-
-  // Reseta a detecção de falha quando o coordenador muda.
-  onCoordinatorChange(): void {
-    this.awaitingAck = false;
-    if (this.hbTimeoutTimer) {
-      clearTimeout(this.hbTimeoutTimer);
-      this.hbTimeoutTimer = null;
     }
   }
 }

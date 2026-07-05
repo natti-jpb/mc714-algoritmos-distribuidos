@@ -9,11 +9,15 @@ export const OBSERVER_PORT = Number(process.env.OBSERVER_PORT ?? 8080);
 export const OBSERVER_URL = process.env.OBSERVER_URL ?? `ws://${HOST}:${OBSERVER_PORT}`;
 
 // Tempos (ms). Calibrados para a demonstração ser observável a olho nu.
-export const STARTUP_GRACE_MS = 2000; // espera a malha conectar antes de detectar falhas
-export const HEARTBEAT_INTERVAL_MS = 1000; // de quanto em quanto o nó pinga o coordenador
-export const HEARTBEAT_TIMEOUT_MS = 2500; // sem ACK nesse tempo => coordenador é dado como morto
-export const ELECTION_ANSWER_TIMEOUT_MS = 1500; // espera por ANSWER após enviar ELECTION
+export const REVIVE_GRACE_MS = 600; // após reviver: pequena pausa antes de o nó disparar sua eleição
+export const ELECTION_ANSWER_TIMEOUT_MS = 1500; // espera por ANSWER após enviar ELECTION (piso; escala com o atraso)
+// Atraso ARTIFICIAL de entrega de TODA mensagem (ms). Faz as trocas serem
+// sequenciais e observáveis (pedido -> resposta acontece DEPOIS que a mensagem
+// chega, não no mesmo instante). Ajustável em tempo real pela UI (velocidade).
+export const BASE_MSG_DELAY_MS = 1000;
 export const CS_HOLD_MS = 3000; // tempo que um nó segura a seção crítica antes de liberar
+export const DEATH_TIMEOUT_MS = 2500; // padrão: sem resposta nesse tempo => nó é dado como morto (ajustável na UI)
+export const MAX_INITIAL_CLOCK = 8; // relógio de Lamport inicial de cada nó: aleatório em [0, MAX_INITIAL_CLOCK]
 
 export function defaultPeers(): PeerInfo[] {
   return Array.from({ length: CLUSTER_SIZE }, (_, id) => ({

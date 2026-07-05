@@ -19,6 +19,11 @@ export class LamportClock {
     return this.value;
   }
 
+  /** Define o valor do relógio (usado para iniciar/reiniciar com um instante distinto). */
+  set(value: Lamport): void {
+    this.value = value;
+  }
+
   /** Evento local / interno: incrementa e retorna o novo valor. */
   tick(): Lamport {
     this.value += 1;

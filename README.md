@@ -101,32 +101,49 @@ O número de nós pode ser ajustado com a variável `CLUSTER_SIZE` (local).
 
 ## Como usar a interface
 
-- **Grafo (centro):** cada nó mostra seu **relógio de Lamport** (⏱), seu estado
-  de exclusão mútua (cor: cinza=livre, laranja=quer SC, verde=na SC), a **coroa
-  👑** no coordenador e **💀** em quem caiu. As setas coloridas são as mensagens
-  em trânsito (legenda no topo).
-- **Controles (direita):** por nó — `Evento` (evento interno, avança o relógio),
-  `Pedir SC`, `Liberar`, `Eleição`, `Matar`/`Reviver`. Também há envio de
-  mensagem de aplicação (demo de Lamport) e injeção de **falha de link**
-  (atraso/descarte).
-- **Explicação (direita):** texto didático de cada algoritmo e **seus problemas**.
-- **Log de eventos (rodapé):** timeline colorida (filtra heartbeats por padrão).
-- **Diagrama espaço-tempo (rodapé):** o clássico diagrama de Lamport — colunas
-  por nó, tempo lógico para baixo, setas = mensagens.
+- **Cabeçalho:** botão **↻ Reiniciar tudo** (zera relógios, estados e o log —
+  cada nó volta com um **relógio de Lamport inicial diferente**) e o controle de
+  **velocidade**, que ajusta um **atraso artificial de entrega** de toda mensagem
+  (ms/msg). Diminuir a velocidade torna as trocas **sequenciais e observáveis**: a
+  resposta só sai depois que a mensagem chega.
+- **Grafo (esquerda):** cada nó tem uma **cor de identidade fixa** (anel colorido)
+  e mostra seu **relógio de Lamport** (⏱); a cor de preenchimento indica o estado
+  de exclusão mútua (cinza=livre, laranja=quer SC, verde=na SC), com a **coroa
+  👑** no coordenador e **💀** em quem caiu. As setas **rotuladas** são as
+  mensagens em trânsito (legenda no topo).
+- **Controles (direita):** um campo **“Considerar nó morto após (ms)”** (tempo
+  sem resposta até declarar morto) e, por nó, `Evento`, `Pedir SC`, `Liberar`,
+  `Eleição`, `Matar`/`Reviver`. Tanto **Pedir SC** quanto o envio de **mensagem
+  de aplicação** esperam uma resposta do coordenador; sem resposta no prazo, o
+  solicitante o **declara morto e inicia a eleição** (detecção de falha manual).
+  Há ainda a injeção de **falha de link** (atraso/descarte). Os “?” mostram a
+  explicação ao passar o mouse.
+- **Explicação (direita):** aba **Comunicação (real)** — descreve a troca de
+  mensagens por WebSocket/TCP — além do texto didático de cada algoritmo e **seus
+  problemas**.
+- **Log de eventos (abaixo do grafo):** timeline colorida, com cada nó em sua cor.
+- **Diagrama espaço-tempo:** o clássico diagrama de Lamport — colunas por nó,
+  tempo lógico para baixo, setas = mensagens.
 
 ### Experimentos sugeridos (ótimos para o vídeo)
 
 1. **Lamport:** clique `Evento` em nós diferentes (relógios sobem de forma
    independente); depois envie uma mensagem **APP** e veja o salto `max+1` no
-   receptor. Abra o **diagrama espaço-tempo**.
+   receptor (e o `APP_ACK` de volta). Abra o **diagrama espaço-tempo**.
 2. **Exclusão mútua:** clique `Pedir SC` em dois nós quase ao mesmo tempo — um
    entra (verde), o outro vai para a **fila** do coordenador.
-3. **Falha + eleição:** com fila pendente, **mate o coordenador**. Veja a
-   **tempestade de eleições** (Bully), o novo coordenador assumir (a coroa migra)
-   e os pedidos pendentes serem reenviados e atendidos.
-4. **Valentão:** **reviva** o ex-coordenador (maior id) e veja-o **reassumir**.
-5. **Falha de rede:** injete **atraso/descarte** no link de um nó para o
-   coordenador e provoque uma detecção de falha *falsa*.
+3. **Detecção de falha passo a passo (Bully):** **mate o
+   coordenador** (crash silencioso — nada acontece sozinho, a conexão continua de
+   pé); envie uma **mensagem de aplicação** de um nó (ex.: n1) para o coordenador.
+   Sem `APP_ACK`, o remetente **declara o coordenador morto** e **inicia a
+   eleição** — reproduzindo "quando um processo nota que o coordenador não
+   responde às requisições, ele inicia uma eleição".
+4. **Eleição em cadeia:** o iniciador envia `ELECTION` aos maiores; os maiores
+   respondem `ANSWER` (mandam-no parar) e cada um inicia a própria eleição; o de
+   maior id vence e anuncia `COORDINATOR` a todos (a coroa migra). Acompanhe pelas
+   **setas rotuladas** no grafo.
+5. **Valentão:** **reviva** o ex-coordenador (maior id) e veja-o **reassumir**:
+   ao voltar ele faz uma eleição e, sendo o maior, vence na hora.
 
 ---
 

@@ -9,8 +9,12 @@ export interface NodeContext {
   readonly allIds: NodeId[]; // todos os ids do cluster (inclui o próprio)
   readonly clock: LamportClock;
   coordinator: NodeId | null;
+  msgDelayMs: number; // atraso artificial atual de entrega (usado para calibrar timeouts)
+  readonly deathTimeoutMs: number; // tempo efetivo sem resposta até considerar o alvo morto
 
   isAlive(): boolean;
+  /** Dispara uma eleição Bully (ex.: ao suspeitar que o coordenador morreu). */
+  startElection(): void;
 
   /** Envia mensagem para um nó (carimba Lamport e emite telemetria). */
   send(type: MessageType, to: NodeId, payload?: Record<string, unknown>): void;

@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import type { NodeId } from "../../shared/types";
+import type { MessageType, NodeId } from "../../shared/types";
 import type { LogEntry, UINode } from "../types";
-import { isCausal, MUTEX_COLORS, MUTEX_LABELS, TYPE_COLORS } from "../theme";
+import { MUTEX_COLORS, MUTEX_LABELS, nodeColor, TYPE_COLORS, TYPE_LABELS } from "../theme";
 
 interface Props {
   nodes: UINode[];
   events: LogEntry[];
-  showHeartbeats: boolean;
-  speed: number;
+  delayMs: number; // atraso de entrega: o ponto viaja durante esse tempo (chega quando a msg chega)
 }
 
 interface Flight {
   key: string;
   from: NodeId;
   to: NodeId;
+  type: MessageType;
   color: string;
   born: number;
 }
@@ -34,11 +34,16 @@ function layout(ids: NodeId[]): Map<NodeId, { x: number; y: number }> {
 
 const ease = (t: number) => t * t * (3 - 2 * t);
 
-export function NodeGraph({ nodes, events, showHeartbeats, speed }: Props) {
+const LINGER_MS = 700; // quanto a seta permanece visível após a mensagem chegar
+
+export function NodeGraph({ nodes, events, delayMs }: Props) {
   const flightsRef = useRef<Flight[]>([]);
   const lastSeqRef = useRef<number>(-1);
   const [, setTick] = useState(0);
-  const dur = 900 / speed;
+  // O ponto viaja durante o atraso de entrega (chega quando a mensagem chega);
+  // depois a seta ainda fica visível por um tempinho para dar para ler o rótulo.
+  const travel = Math.max(250, delayMs);
+  const life = travel + LINGER_MS;
 
   // Cria animações de "voo" para cada nova mensagem enviada.
   useEffect(() => {
@@ -56,23 +61,29 @@ export function NodeGraph({ nodes, events, showHeartbeats, speed }: Props) {
     for (const e of fresh.reverse()) {
       if (e.t.kind !== "send") continue;
       const type = e.t.msg.type;
-      if (!showHeartbeats && !isCausal(type)) continue;
-      flightsRef.current.push({ key: String(e.seq), from: e.t.msg.from, to: e.t.msg.to, color: TYPE_COLORS[type], born: performance.now() });
+      flightsRef.current.push({
+        key: String(e.seq),
+        from: e.t.msg.from,
+        to: e.t.msg.to,
+        type,
+        color: TYPE_COLORS[type],
+        born: performance.now(),
+      });
     }
-  }, [events, showHeartbeats]);
+  }, [events]);
 
   // Loop de animação.
   useEffect(() => {
     let raf = 0;
     const loop = () => {
       const now = performance.now();
-      flightsRef.current = flightsRef.current.filter((f) => now - f.born < dur);
+      flightsRef.current = flightsRef.current.filter((f) => now - f.born < life);
       setTick((x) => (x + 1) % 1_000_000);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [dur]);
+  }, [life]);
 
   const ids = nodes.map((n) => n.id);
   const pos = layout(ids);
@@ -90,15 +101,59 @@ export function NodeGraph({ nodes, events, showHeartbeats, speed }: Props) {
         }),
       )}
 
-      {/* mensagens em voo */}
+      {/* mensagens em voo: SETA DIRECIONAL + rótulo + ponto se movendo */}
       {flightsRef.current.map((f) => {
-        const pa = pos.get(f.from);
-        const pb = pos.get(f.to);
-        if (!pa || !pb) return null;
-        const p = ease(Math.min(1, (now - f.born) / dur));
-        const x = pa.x + (pb.x - pa.x) * p;
-        const y = pa.y + (pb.y - pa.y) * p;
-        return <circle key={f.key} cx={x} cy={y} r={7} fill={f.color} className="flight" />;
+        const A = pos.get(f.from);
+        const B = pos.get(f.to);
+        if (!A || !B) return null;
+
+        const dx = B.x - A.x;
+        const dy = B.y - A.y;
+        const L = Math.hypot(dx, dy) || 1;
+        const ux = dx / L;
+        const uy = dy / L;
+        const perpx = -uy;
+        const perpy = ux;
+        const OFF = 11; // desloca a seta lateralmente (setas opostas não se sobrepõem)
+
+        const sx = A.x + ux * (NODE_R + 3) + perpx * OFF;
+        const sy = A.y + uy * (NODE_R + 3) + perpy * OFF;
+        const ex = B.x - ux * (NODE_R + 11) + perpx * OFF;
+        const ey = B.y - uy * (NODE_R + 11) + perpy * OFF;
+
+        // ponta da seta (triângulo)
+        const ah = 11;
+        const aw = 5.5;
+        const bx = ex - ux * ah;
+        const by = ey - uy * ah;
+        const head = `${ex},${ey} ${bx + perpx * aw},${by + perpy * aw} ${bx - perpx * aw},${by - perpy * aw}`;
+
+        // ponto viaja durante o ATRASO de entrega (chega quando a mensagem chega)
+        const age = now - f.born;
+        const p = ease(Math.min(1, age / travel));
+        const dotx = sx + (ex - sx) * p;
+        const doty = sy + (ey - sy) * p;
+
+        // totalmente visível enquanto viaja; some durante o "linger" após chegar
+        const opacity = age < travel ? 1 : Math.max(0, 1 - (age - travel) / LINGER_MS);
+
+        // rótulo no meio da seta, com fundo para legibilidade
+        const label = TYPE_LABELS[f.type];
+        const mx = (sx + ex) / 2 + perpx * 2;
+        const my = (sy + ey) / 2 + perpy * 2;
+        const w = label.length * 6.6 + 10;
+
+        return (
+          <g key={f.key} opacity={opacity}>
+            <line x1={sx} y1={sy} x2={ex} y2={ey} stroke={f.color} strokeWidth={2.4} strokeLinecap="round" />
+            <polygon points={head} fill={f.color} />
+            <circle cx={dotx} cy={doty} r={5} fill={f.color} className="flight" />
+            <rect x={mx - w / 2} y={my - 9} width={w} height={16} rx={4} fill="#0d1220" opacity={0.85} stroke={f.color} strokeWidth={0.8} />
+            <text x={mx} y={my + 3} textAnchor="middle" className="flight-label" fill={f.color}>
+              {label}
+            </text>
+          </g>
+        );
       })}
 
       {/* nós */}
@@ -106,17 +161,19 @@ export function NodeGraph({ nodes, events, showHeartbeats, speed }: Props) {
         const p = pos.get(n.id)!;
         const isCoord = n.alive && n.coordinator === n.id;
         const fill = n.alive ? MUTEX_COLORS[n.mutex] : "#222a3d";
+        const idColor = n.alive ? nodeColor(n.id) : "#5b6683";
         return (
           <g key={n.id} transform={`translate(${p.x},${p.y})`} className={n.alive ? "node" : "node node-dead"}>
             {n.inElection && <circle r={NODE_R + 8} className="ring-election" />}
             {isCoord && <circle r={NODE_R + 5} className="ring-coord" />}
-            <circle r={NODE_R} fill={fill} stroke={isCoord ? "#ffd24a" : "#2a3550"} strokeWidth={isCoord ? 4 : 2} />
+            {/* anel de IDENTIDADE (cor fixa do nó) */}
+            <circle r={NODE_R} fill={fill} stroke={idColor} strokeWidth={4} />
             {isCoord && (
               <text className="crown" y={-NODE_R - 14} textAnchor="middle">
                 👑
               </text>
             )}
-            <text className="node-id" y={-6} textAnchor="middle">
+            <text className="node-id" y={-6} textAnchor="middle" fill={idColor}>
               n{n.id}
             </text>
             <text className="node-clock" y={13} textAnchor="middle">

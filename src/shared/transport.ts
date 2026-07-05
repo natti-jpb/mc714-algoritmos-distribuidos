@@ -37,6 +37,9 @@ export class Transport {
   private faults = new Map<NodeId, LinkFault>();
   private reconnectTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  // Atraso artificial (ms) aplicado a TODA mensagem enviada — torna as trocas
+  // observáveis/sequenciais. Somado ao atraso de falha de link, se houver.
+  private baseDelayMs = 0;
 
   constructor(
     private readonly nodeId: NodeId,
@@ -138,6 +141,10 @@ export class Transport {
     else this.faults.delete(peerId);
   }
 
+  setBaseDelay(ms: number): void {
+    this.baseDelayMs = Math.max(0, ms);
+  }
+
   isConnected(peerId: NodeId): boolean {
     const ws = this.sockets.get(peerId);
     return !!ws && ws.readyState === WebSocket.OPEN;
@@ -160,10 +167,11 @@ export class Transport {
       return;
     }
     const data = JSON.stringify(msg);
-    if (fault && fault.delayMs > 0) {
+    const delay = this.baseDelayMs + (fault?.delayMs ?? 0);
+    if (delay > 0) {
       setTimeout(() => {
         if (ws.readyState === WebSocket.OPEN) ws.send(data);
-      }, fault.delayMs);
+      }, delay);
     } else {
       ws.send(data);
     }

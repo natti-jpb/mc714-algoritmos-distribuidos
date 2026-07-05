@@ -1,29 +1,31 @@
 import type { MessageType, MutexState } from "../shared/types";
 
 // Cores por tipo de mensagem (usadas nas setas e no log).
+// Paleta escolhida para MÁXIMO contraste entre tipos que aparecem juntos
+// (ex.: ELECTION x ANSWER, APP x APP_ACK, os três de exclusão mútua).
 export const TYPE_COLORS: Record<MessageType, string> = {
-  APP: "#4aa3ff",
-  MUTEX_REQUEST: "#ff9f40",
-  MUTEX_GRANT: "#ffd24a",
-  MUTEX_RELEASE: "#ffbe6b",
-  ELECTION: "#b18cff",
-  ANSWER: "#9b7bff",
-  COORDINATOR: "#5ef0b0",
-  HEARTBEAT: "#3a4a66",
-  HEARTBEAT_ACK: "#33415c",
+  APP: "#3b82f6", // azul
+  APP_ACK: "#22d3ee", // ciano
+  MUTEX_REQUEST: "#f59e0b", // âmbar
+  MUTEX_ACK: "#fcd34d", // amarelo claro (confirmação de recebimento)
+  MUTEX_GRANT: "#a3e635", // lima
+  MUTEX_RELEASE: "#f43f5e", // vermelho-rosa
+  ELECTION: "#a855f7", // roxo
+  ANSWER: "#ec4899", // rosa/magenta
+  COORDINATOR: "#10b981", // verde esmeralda
 };
 
 // Rótulos amigáveis por tipo.
 export const TYPE_LABELS: Record<MessageType, string> = {
   APP: "APP",
+  APP_ACK: "APP_ACK",
   MUTEX_REQUEST: "REQUEST",
+  MUTEX_ACK: "REQ_ACK",
   MUTEX_GRANT: "GRANT",
   MUTEX_RELEASE: "RELEASE",
   ELECTION: "ELECTION",
   ANSWER: "ANSWER",
   COORDINATOR: "COORDINATOR",
-  HEARTBEAT: "HEARTBEAT",
-  HEARTBEAT_ACK: "HB_ACK",
 };
 
 export const MUTEX_COLORS: Record<MutexState, string> = {
@@ -38,6 +40,9 @@ export const MUTEX_LABELS: Record<MutexState, string> = {
   held: "na SC",
 };
 
-export function isCausal(type: MessageType): boolean {
-  return type !== "HEARTBEAT" && type !== "HEARTBEAT_ACK";
+// Cor de IDENTIDADE de cada nó (para distinguir nós no grafo, controles e log).
+const NODE_PALETTE = ["#60a5fa", "#f472b6", "#34d399", "#fbbf24", "#a78bfa", "#fb7185", "#38bdf8", "#c084fc"];
+export function nodeColor(id: number): string {
+  const n = NODE_PALETTE.length;
+  return NODE_PALETTE[((id % n) + n) % n];
 }
