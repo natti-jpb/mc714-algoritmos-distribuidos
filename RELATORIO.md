@@ -3,8 +3,7 @@
 **Instituto de Computação — UNICAMP**
 **Prof. Luiz Fernando Bittencourt**
 
-> **Integrantes:** _Nome Completo (RA)_ — **preencher** · _Nome Completo (RA)_ — **preencher**
-> _(Em dupla, a entrega no Classroom é feita por apenas um integrante.)_
+> **Integrantes:** Pedro Henrique Antoine Cortez Daccache (251572) · João Pedro Barreto Bonatti (237575)
 
 ---
 
